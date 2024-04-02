@@ -7,7 +7,7 @@
 #include <QListWidget>
 #include <QPushButton>
 #include <QDateEdit>
-#include <QTimeEdit>
+#include <QDateTimeEdit> // Include QDateTimeEdit
 #include <QCalendarWidget>
 #include <QtSql>
 #include <QDebug>
@@ -15,6 +15,9 @@
 #include <QSystemTrayIcon>
 #include <QMenu>
 #include <QMessageBox>
+#include <QCloseEvent>
+
+class QCloseEvent;
 
 class TaskManager {
 public:
@@ -29,7 +32,7 @@ public:
 
         // Create tasks table if not exists
         QSqlQuery query;
-        query.exec("CREATE TABLE IF NOT EXISTS tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, task TEXT, due_date TEXT, alarm_time TEXT)");
+        query.exec("CREATE TABLE IF NOT EXISTS tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, task TEXT, due_date TEXT, alarm_time TEXT, alerted INTEGER DEFAULT 0)");
     }
 
     ~TaskManager() {
@@ -76,6 +79,25 @@ public:
         query.exec();
     }
 
+    bool isTaskAlerted(int taskId) {
+        QSqlQuery query;
+        query.prepare("SELECT alerted FROM tasks WHERE id = :id");
+        query.bindValue(":id", taskId);
+        query.exec();
+        if (query.next()) {
+            return query.value(0).toBool();
+        }
+        return false;
+    }
+
+    void setTaskAlerted(int taskId, bool alerted) {
+        QSqlQuery query;
+        query.prepare("UPDATE tasks SET alerted = :alerted WHERE id = :id");
+        query.bindValue(":alerted", alerted);
+        query.bindValue(":id", taskId);
+        query.exec();
+    }
+
     // Implement alarm functionality here if needed
 private:
     QSqlDatabase db;
@@ -83,6 +105,15 @@ private:
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
+protected:
+    void closeEvent(QCloseEvent *event) override {
+        if (trayIcon && trayIcon->isVisible()) {
+            hide();
+            event->ignore();
+        } else {
+            event->accept();
+        }
+    }
 public:
     MainWindow(QWidget *parent = nullptr) : QMainWindow(parent) {
         setWindowTitle("ToDo Task Manager");
@@ -122,11 +153,14 @@ public:
 
         dueDateEdit = new QDateEdit(this);
         dueDateEdit->setCalendarPopup(true);
+        dueDateEdit->setDate(QDate::currentDate());
         dateLayout->addWidget(dueDateEdit);
 
-        timeEdit = new QTimeEdit(this);
-        timeEdit->setDisplayFormat("hh:mm");
-        dateLayout->addWidget(timeEdit);
+        // Use QDateTimeEdit instead of QTimeEdit
+        dateTimeEdit = new QDateTimeEdit(this);
+        dateTimeEdit->setDisplayFormat("MM/dd/yyyy hh:mm AP");
+        dateTimeEdit->setDateTime(QDateTime::currentDateTime());
+        dateLayout->addWidget(dateTimeEdit);
 
         // Populate task list
         updateTaskList();
@@ -134,6 +168,10 @@ public:
         createTrayIcon();
 
         connect(taskList, &QListWidget::itemDoubleClicked, this, &MainWindow::editTask);
+        // Timer to check for due tasks
+        QTimer *timer = new QTimer(this);
+        connect(timer, &QTimer::timeout, this, &MainWindow::checkDueTasks);
+        timer->start(60000); // Check every minute (adjust as needed)
     }
 
     ~MainWindow() {
@@ -144,7 +182,7 @@ private slots:
     void addTask() {
         QString taskName = taskNameEdit->text();
         QString dueDate = dueDateEdit->date().toString("yyyy-MM-dd");
-        QString alarmTime = timeEdit->time().toString("hh:mm");
+        QString alarmTime = dateTimeEdit->dateTime().toString("hh:mm");
         if (!taskName.isEmpty()) {
             taskManager->addTask(taskName, dueDate, alarmTime);
             updateTaskList();
@@ -154,7 +192,7 @@ private slots:
     void updateTask() {
         QString taskName = taskNameEdit->text();
         QString dueDate = dueDateEdit->date().toString("yyyy-MM-dd");
-        QString alarmTime = timeEdit->time().toString("hh:mm");
+        QString alarmTime = dateTimeEdit->dateTime().toString("hh:mm");
         QListWidgetItem *selectedItem = taskList->currentItem();
         if (selectedItem) {
             int taskId = selectedItem->data(Qt::UserRole).toInt();
@@ -185,38 +223,59 @@ private slots:
 
             taskNameEdit->setText(taskName);
             dueDateEdit->setDate(QDate::fromString(dueDate, "yyyy-MM-dd"));
-            timeEdit->setTime(QTime::fromString(alarmTime, "hh:mm"));
+            dateTimeEdit->setDateTime(QDateTime::fromString(dueDate + " " + alarmTime, "yyyy-MM-dd hh:mm"));
         }
     }
 
     void updateTaskList() {
+        qApp->setQuitOnLastWindowClosed(false);
         taskList->clear();
-        QSqlQuery query("SELECT id, task, due_date, alarm_time FROM tasks");
+        QSqlQuery query("SELECT id, task, due_date, alarm_time, alerted FROM tasks");
         while (query.next()) {
             int taskId = query.value(0).toInt();
             QString taskName = query.value(1).toString();
             QString dueDate = query.value(2).toString();
             QString alarmTime = query.value(3).toString();
+            bool alerted = query.value(4).toBool();
 
             QListWidgetItem *item = new QListWidgetItem(taskName + " - Due Date: " + dueDate + " " + alarmTime);
             item->setData(Qt::UserRole, taskId);
 
             QDateTime dueDateTime = QDateTime::fromString(dueDate + " " + alarmTime, "yyyy-MM-dd hh:mm");
-            if (dueDateTime.date() == QDate::currentDate()) {
+            if (dueDateTime.date() == QDate::currentDate() && alerted) {
                 item->setForeground(Qt::red);
+                QMessageBox::StandardButton confirmDelete = QMessageBox::question(this, "Delete Alerted Task", "Do you want to delete the alerted task: " + taskName + "?", QMessageBox::Yes | QMessageBox::No);
+                if (confirmDelete == QMessageBox::Yes) {
+                    taskManager->deleteTask(taskId);
+                } else {
+                    taskManager->setTaskAlerted(taskId, false);
+                }
             }
 
             taskList->addItem(item);
         }
+        qApp->setQuitOnLastWindowClosed(true);
     }
 
     void createTrayIcon() {
-        QSystemTrayIcon *trayIcon = new QSystemTrayIcon(this);
-        QIcon icon = QIcon(":/images/icon.png");
+        trayIcon = new QSystemTrayIcon(this);
+        QIcon icon = QIcon(":/qtodo.png");
         trayIcon->setIcon(icon);
         trayIcon->setVisible(true);
 
         connect(trayIcon, &QSystemTrayIcon::activated, this, &MainWindow::toggleWindow);
+
+        // Create context menu
+        QMenu *trayMenu = new QMenu(this);
+        QAction *showWindowAction = new QAction("Show Window", this);
+        connect(showWindowAction, &QAction::triggered, this, &MainWindow::showWindow);
+        trayMenu->addAction(showWindowAction);
+
+        QAction *quitAction = new QAction("Quit", this);
+        connect(quitAction, &QAction::triggered, qApp, &QApplication::quit);
+        trayMenu->addAction(quitAction);
+
+        trayIcon->setContextMenu(trayMenu);
     }
 
     void toggleWindow(QSystemTrayIcon::ActivationReason reason) {
@@ -229,6 +288,46 @@ private slots:
         }
     }
 
+    void showWindow() {
+        show();
+    }
+
+    void checkDueTasks() {
+          QSqlQuery query("SELECT id, task, due_date, alarm_time, alerted FROM tasks");
+          while (query.next()) {
+              int taskId = query.value(0).toInt();
+              QString taskName = query.value(1).toString();
+              QString dueDate = query.value(2).toString();
+              QString alarmTime = query.value(3).toString();
+              bool alerted = query.value(4).toBool();
+
+              QDateTime dueDateTime = QDateTime::fromString(dueDate + " " + alarmTime, "yyyy-MM-dd hh:mm");
+              QDateTime currentDateTime = QDateTime::currentDateTime();
+
+              if (!alerted && currentDateTime >= dueDateTime) {
+                  // Task is due and not alerted
+                  QListWidgetItem *item = findTaskItem(taskId);
+                  if (item) {
+                      item->setForeground(Qt::red);
+                      QMessageBox::StandardButton confirmAlert = QMessageBox::question(this, "Task Alert", "Task " + taskName + " is due. Do you want to mark it as alerted?", QMessageBox::Yes | QMessageBox::No);
+                      if (confirmAlert == QMessageBox::Yes) {
+                          taskManager->setTaskAlerted(taskId, true);
+                      item->
+                      }
+                  }
+              }
+          }
+      }
+
+      QListWidgetItem* findTaskItem(int taskId) {
+          for (int i = 0; i < taskList->count(); ++i) {
+              QListWidgetItem *item = taskList->item(i);
+              if (item->data(Qt::UserRole).toInt() == taskId) {
+                  return item;
+              }
+          }
+          return nullptr;
+      }
 private:
     TaskManager *taskManager;
     QListWidget *taskList;
@@ -237,7 +336,8 @@ private:
     QPushButton *deleteButton;
     QLineEdit *taskNameEdit;
     QDateEdit *dueDateEdit;
-    QTimeEdit *timeEdit;
+    QDateTimeEdit *dateTimeEdit; // Change QTimeEdit to QDateTimeEdit
+    QSystemTrayIcon *trayIcon;
 };
 
 int main(int argc, char *argv[]) {
