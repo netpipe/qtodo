@@ -167,8 +167,8 @@ public:
         dateLayout->addWidget(dueDateEdit);
 
         // Use QDateTimeEdit instead of QTimeEdit
-        dateTimeEdit = new QDateTimeEdit(this);
-        dateTimeEdit->setDisplayFormat("MM/dd/yyyy hh:mm AP");
+        dateTimeEdit = new QTimeEdit(this);
+        //dateTimeEdit->setDisplayFormat("hh:mm AP");
         dateTimeEdit->setDateTime(QDateTime::currentDateTime());
         dateLayout->addWidget(dateTimeEdit);
 
@@ -317,7 +317,11 @@ private slots:
 
               if (!alerted && currentDateTime >= dueDateTime) {
                   // Task is due and not alerted
-                 QSound::play( "test.wav");
+               //  QSound::play( "test.wav");
+                 QSound *sound = new QSound("test.wav");
+                 sound->setLoops(100);
+                 sound->play();
+
                   QListWidgetItem *item = findTaskItem(taskId);
                   if (item) {
                       item->setForeground(Qt::green);
@@ -325,7 +329,8 @@ private slots:
                       if (confirmAlert == QMessageBox::Yes) {
                           item->setForeground(Qt::red);
                           taskManager->setTaskAlerted(taskId, true);
-                      }
+                           sound->stop();
+                      }else   {sound->stop();}
                   }
               }
           }
@@ -348,7 +353,7 @@ private:
     QPushButton *deleteButton;
     QLineEdit *taskNameEdit;
     QDateEdit *dueDateEdit;
-    QDateTimeEdit *dateTimeEdit; // Change QTimeEdit to QDateTimeEdit
+    QTimeEdit *dateTimeEdit; // Change QTimeEdit to QDateTimeEdit
     QSystemTrayIcon *trayIcon;
 };
 
