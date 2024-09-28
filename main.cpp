@@ -16,6 +16,8 @@
 #include <QMenu>
 #include <QMessageBox>
 #include <QCloseEvent>
+//#include <QtMultimedia/QMediaPlayer>
+#include <QSound>
 
 class QCloseEvent;
 
@@ -23,7 +25,11 @@ class TaskManager {
 public:
     TaskManager() {
         db = QSqlDatabase::addDatabase("QSQLITE");
+#ifndef __APPLE__
         db.setDatabaseName("todo.db");
+#else
+        db.setDatabaseName("/Applications/qtodo.app/Contents/MacOS/todo.db");
+#endif
 
         if (!db.open()) {
             qDebug() << "Error: unable to open database";
@@ -103,6 +109,7 @@ private:
     QSqlDatabase db;
 };
 
+
 class MainWindow : public QMainWindow {
     Q_OBJECT
 protected:
@@ -115,6 +122,9 @@ protected:
         }
     }
 public:
+
+
+
     MainWindow(QWidget *parent = nullptr) : QMainWindow(parent) {
         setWindowTitle("ToDo Task Manager");
 
@@ -207,11 +217,11 @@ private slots:
         QListWidgetItem *selectedItem = taskList->currentItem();
         if (selectedItem) {
             int taskId = selectedItem->data(Qt::UserRole).toInt();
-            QMessageBox::StandardButton confirmDelete = QMessageBox::question(this, "Confirm Delete", "Are you sure you want to delete this task?", QMessageBox::Yes | QMessageBox::No);
-            if (confirmDelete == QMessageBox::Yes) {
+            //QMessageBox::StandardButton confirmDelete = QMessageBox::question(this, "Confirm Delete", "Are you sure you want to delete this task?", QMessageBox::Yes | QMessageBox::No);
+           // if (confirmDelete == QMessageBox::Yes) {
                 taskManager->deleteTask(taskId);
-                updateTaskList();
-            }
+                updateTask();
+          //  }
         }
     }
 
@@ -244,15 +254,15 @@ private slots:
             QDateTime dueDateTime = QDateTime::fromString(dueDate + " " + alarmTime, "yyyy-MM-dd hh:mm");
             if (dueDateTime.date() == QDate::currentDate() && alerted) {
                 item->setForeground(Qt::red);
-                QMessageBox::StandardButton confirmDelete = QMessageBox::question(this, "Delete Alerted Task", "Do you want to delete the alerted task: " + taskName + "?", QMessageBox::Yes | QMessageBox::No);
-                if (confirmDelete == QMessageBox::Yes) {
-                    taskManager->deleteTask(taskId);
-                } else {
-                    taskManager->setTaskAlerted(taskId, false);
-                }
+               // QMessageBox::StandardButton confirmDelete = QMessageBox::question(this, "Delete Alerted Task", "Do you want to delete the alerted task: " + taskName + "?", QMessageBox::Yes | QMessageBox::No);
+               // if (confirmDelete == QMessageBox::Yes) {
+               //     taskManager->deleteTask(taskId);
+              //  } else {
+                   // taskManager->setTaskAlerted(taskId, false);
+              //  }
             }
-
             taskList->addItem(item);
+          // }
         }
         qApp->setQuitOnLastWindowClosed(true);
     }
@@ -292,6 +302,7 @@ private slots:
         show();
     }
 
+
     void checkDueTasks() {
           QSqlQuery query("SELECT id, task, due_date, alarm_time, alerted FROM tasks");
           while (query.next()) {
@@ -306,13 +317,14 @@ private slots:
 
               if (!alerted && currentDateTime >= dueDateTime) {
                   // Task is due and not alerted
+                 QSound::play( "test.wav");
                   QListWidgetItem *item = findTaskItem(taskId);
                   if (item) {
-                      item->setForeground(Qt::red);
+                      item->setForeground(Qt::green);
                       QMessageBox::StandardButton confirmAlert = QMessageBox::question(this, "Task Alert", "Task " + taskName + " is due. Do you want to mark it as alerted?", QMessageBox::Yes | QMessageBox::No);
                       if (confirmAlert == QMessageBox::Yes) {
+                          item->setForeground(Qt::red);
                           taskManager->setTaskAlerted(taskId, true);
-                      item->
                       }
                   }
               }
