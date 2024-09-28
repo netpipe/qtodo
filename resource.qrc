@@ -1,5 +1,6 @@
 <RCC>
     <qresource prefix="/">
         <file>qtodo.png</file>
+        <file>test.wav</file>
     </qresource>
 </RCC>

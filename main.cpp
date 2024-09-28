@@ -318,7 +318,7 @@ private slots:
               if (!alerted && currentDateTime >= dueDateTime) {
                   // Task is due and not alerted
                //  QSound::play( "test.wav");
-                 QSound *sound = new QSound("test.wav");
+                 QSound *sound = new QSound(":/test.wav");
                  sound->setLoops(100);
                  sound->play();
 
